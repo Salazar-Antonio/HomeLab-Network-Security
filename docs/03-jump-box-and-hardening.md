@@ -8,7 +8,7 @@ The only server directly reachable from the public internet. A minimal VM on the
 
 - Root login disabled in SSH config
 - Brute-force auto-ban tool installed and active
-- Separate per-user accounts for each external person given access — never a shared login, so logs can show who actually connected
+- Separate per-user accounts for anyone given access, never a shared login, so logs can show who actually connected
 - Public reachability via a firewall rule allowing the access port inbound, plus a NAT rule forwarding it to the jump box specifically — nothing else on the network is directly reachable
 
 ## The hardening pass — checking if security had actually held
@@ -21,11 +21,11 @@ A box that had been locked to key-only SSH weeks earlier was found, during an un
 
 > **The lesson:** a security setting isn't done just because it was set once. Drop-in config files load after the main file and can silently override it. Always check both the main config *and* its drop-in directory, and verify with the tool's own merged-config output rather than trusting a single file that was edited once and never rechecked.
 
-The jump box was checked the same way: its main config had never explicitly disabled password auth, and the same drop-in behavior applied there. It was brought in line with the key-only standard used everywhere else, verified with the merged-config output.
+The jump box was checked the same way: its main config had never explicitly disabled password auth, and a provisioning drop-in file was keeping it enabled. Password login is left on deliberately, because the box exists to give temporary guests access. Guest accounts stay locked between visits, root login is disabled, and brute-force banning is tightened as described below.
 
 ### Finding 2 — brute-force protection was active, but on soft defaults
 
-Confirmed genuinely working (hundreds of failed attempts logged, dozens of IPs banned historically) — but the default settings (5 attempts, short ban window) are lenient for a box now carrying multiple external accounts. Tightened via a proper override file (never edit the tool's main config directly — package updates overwrite it): fewer attempts allowed, longer initial ban, and ban duration multiplying on repeat offenses up to a hard cap.
+Confirmed genuinely working (hundreds of failed attempts logged, dozens of IPs banned historically) — but the default settings (5 attempts, short ban window) are lenient for an internet-facing box. Tightened via a proper override file (never edit the tool's main config directly — package updates overwrite it): fewer attempts allowed and a longer ban window.
 
 ### Finding 3 — the jump box could reach far more than its job required
 
@@ -35,11 +35,11 @@ Its only real function is to accept inbound SSH and serve one static app locally
 
 **Root cause, found by watching the firewall's live traffic log:** the jump box and the other server sit on the *same* VLAN. Traffic between two hosts on the same subnet is switched at Layer 2 and never routes through the firewall — so a router-level rule never gets the chance to evaluate it. A ping to an outside address (crossing the router) appeared in the log; the same-VLAN ping never did.
 
-**The actual fix had to be host-based**, since the router structurally cannot see same-subnet traffic. Installed a host firewall directly on the jump box with explicit deny rules for every internal subnet, allow rules only for the two ports it actually needs to serve.
+**The actual fix had to be host-based**, since the router structurally cannot see same-subnet traffic. Installed a host firewall directly on the jump box with explicit deny rules for every internal subnet, and allow rules only for the ports it actually needs to serve.
 
 **Verified result:**
 
-- Ping to the same-VLAN server: 100% loss — blocked by the host firewall
+- Ping to the same-VLAN server: 100% loss — blocked by the host firewall. A later re-check found the deny rule initially covered only one address on the jump box's own VLAN, leaving another server reachable; it was widened to the whole subnet and re-verified (100% loss).
 - Ping to the internet: 100% loss — blocked by the network firewall
 - The jump box's own local app: still responding fine — loopback traffic is unaffected by outbound rules
 
